@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canopy & Trailer Shipping Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chosen Palette: Warm Stone & Sage -->
+    <!-- Application Structure Plan: The application is designed as a task-oriented dashboard. A two-column responsive layout separates user controls from the results. The left column contains all interactive inputs (trailer/canopy dimensions, units to ship), directly corresponding to the parameters outlined in the source report. The right column is dedicated to the output: a large canvas for the top-down visual representation of the last packed trailer, and a summary text block for the calculated total trucks needed. This structure was chosen for its intuitive user flow, allowing users to input their inventory and immediately see the shipping solution and a packing example. -->
+    <!-- Visualization & Content Choices: 
+        - Trailer Dimensions (Report Info) -> Goal: Input -> Viz/Presentation: HTML number inputs -> Interaction: User entry -> Justification: Standard and clear method for numeric data entry.
+        - Canopy Specs (User Inventory) -> Goal: Input -> Viz/Presentation: Fixed HTML number inputs for up to 5 canopy types -> Interaction: User enters dimensions/quantities directly -> Justification: Simplifies UI, removes dynamic element complexity, and addresses stability concerns.
+        - Packing Visualization (Simulated Truck Load) -> Goal: Inform/Example -> Viz/Presentation: HTML Canvas -> Interaction: Visual display of the last packed truck, updated on calculation -> Justification: Canvas is ideal for dynamic 2D drawings; shows a practical packing example.
+        - Calculated Results (Total Trucks, Last Truck Content) -> Goal: Inform -> Viz/Presentation: Dynamic text in HTML spans -> Interaction: Display-only, updated by JS -> Justification: Presents core answers clearly and concisely.
+        Library/Method: All interactions and calculations are handled with vanilla JavaScript. No Chart.js/Plotly.js needed as this is a custom drawing, not a data chart. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .form-input {
+            @apply w-full bg-stone-100 border border-stone-300 rounded-lg p-2 text-stone-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-shadow;
+        }
+        .form-label {
+            @apply text-sm font-medium text-stone-600 mb-1 block;
+        }
+        .btn-primary {
+            @apply w-full bg-emerald-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm;
+        }
+        .toggle-bg:after {
+            content: '';
+            @apply absolute top-0.5 left-0.5 bg-white border border-gray-300 rounded-full h-5 w-5 transition-transform shadow-sm;
+        }
+        input:checked + .toggle-bg:after {
+            @apply translate-x-full;
+        }
+        input:checked + .toggle-bg {
+            @apply bg-emerald-600;
+        }
+    </style>
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-stone-50 text-stone-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-emerald-800">Canopy & Trailer Shipping Visualizer</h1>
+            <p class="text-stone-600 mt-2">Input your canopy inventory to calculate trucks needed and visualize a packing example.</p>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- CONTROLS COLUMN -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-md border border-stone-200">
+                <div class="space-y-6">
+                    <div>
+                        <h2 class="text-xl font-bold text-emerald-700 border-b pb-2 mb-4">1. Trailer Dimensions</h2>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label for="trailerLength" class="form-label">Length (ft)</label>
+                                <input type="number" id="trailerLength" value="40" class="form-input" readonly disabled>
+                            </div>
+                            <div>
+                                <label for="trailerWidth" class="form-label">Width (ft)</label>
+                                <input type="number" id="trailerWidth" value="8" class="form-input" readonly disabled>
+                            </div>
+                            <div class="col-span-2">
+                                <label for="trailerHeight" class="form-label">Clearance Height (ft)</label>
+                                <input type="number" id="trailerHeight" value="8.5" class="form-input" readonly disabled>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h2 class="text-xl font-bold text-emerald-700 border-b pb-2 mb-4">
+                            2. Canopy Inventory (Up to 5 Types)
+                        </h2>
+                        <div id="canopy-types-container" class="space-y-4">
+                            <!-- Fixed canopy input sections (max 5) -->
+                            <div id="canopy-type-1" class="p-4 bg-stone-50 rounded-lg border border-stone-200 shadow-sm">
+                                <h3 class="text-md font-semibold text-stone-700 mb-3">Canopy Type #1</h3>
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label for="canopy-type-1-length" class="form-label">Length (ft)</label>
+                                        <input type="number" id="canopy-type-1-length" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div>
+                                        <label for="canopy-type-1-width" class="form-label">Width (ft)</label>
+                                        <input type="number" id="canopy-type-1-width" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label for="canopy-type-1-height" class="form-label">Packed Height (ft)</label>
+                                        <input type="number" id="canopy-type-1-height" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="canopy-type-1-quantity" class="form-label">Quantity</label>
+                                    <input type="number" id="canopy-type-1-quantity" value="" min="0" class="form-input" oninput="queueCalculate()">
+                                </div>
+                            </div>
+                            <div id="canopy-type-2" class="p-4 bg-stone-50 rounded-lg border border-stone-200 shadow-sm">
+                                <h3 class="text-md font-semibold text-stone-700 mb-3">Canopy Type #2</h3>
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label for="canopy-type-2-length" class="form-label">Length (ft)</label>
+                                        <input type="number" id="canopy-type-2-length" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div>
+                                        <label for="canopy-type-2-width" class="form-label">Width (ft)</label>
+                                        <input type="number" id="canopy-type-2-width" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label for="canopy-type-2-height" class="form-label">Packed Height (ft)</label>
+                                        <input type="number" id="canopy-type-2-height" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="canopy-type-2-quantity" class="form-label">Quantity</label>
+                                    <input type="number" id="canopy-type-2-quantity" value="" min="0" class="form-input" oninput="queueCalculate()">
+                                </div>
+                            </div>
+                            <div id="canopy-type-3" class="p-4 bg-stone-50 rounded-lg border border-stone-200 shadow-sm">
+                                <h3 class="text-md font-semibold text-stone-700 mb-3">Canopy Type #3</h3>
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label for="canopy-type-3-length" class="form-label">Length (ft)</label>
+                                        <input type="number" id="canopy-type-3-length" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div>
+                                        <label for="canopy-type-3-width" class="form-label">Width (ft)</label>
+                                        <input type="number" id="canopy-type-3-width" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label for="canopy-type-3-height" class="form-label">Packed Height (ft)</label>
+                                        <input type="number" id="canopy-type-3-height" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="canopy-type-3-quantity" class="form-label">Quantity</label>
+                                    <input type="number" id="canopy-type-3-quantity" value="" min="0" class="form-input" oninput="queueCalculate()">
+                                </div>
+                            </div>
+                            <div id="canopy-type-4" class="p-4 bg-stone-50 rounded-lg border border-stone-200 shadow-sm">
+                                <h3 class="text-md font-semibold text-stone-700 mb-3">Canopy Type #4</h3>
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label for="canopy-type-4-length" class="form-label">Length (ft)</label>
+                                        <input type="number" id="canopy-type-4-length" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div>
+                                        <label for="canopy-type-4-width" class="form-label">Width (ft)</label>
+                                        <input type="number" id="canopy-type-4-width" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label for="canopy-type-4-height" class="form-label">Packed Height (ft)</label>
+                                        <input type="number" id="canopy-type-4-height" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="canopy-type-4-quantity" class="form-label">Quantity</label>
+                                    <input type="number" id="canopy-type-4-quantity" value="" min="0" class="form-input" oninput="queueCalculate()">
+                                </div>
+                            </div>
+                            <div id="canopy-type-5" class="p-4 bg-stone-50 rounded-lg border border-stone-200 shadow-sm">
+                                <h3 class="text-md font-semibold text-stone-700 mb-3">Canopy Type #5</h3>
+                                <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                        <label for="canopy-type-5-length" class="form-label">Length (ft)</label>
+                                        <input type="number" id="canopy-type-5-length" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div>
+                                        <label for="canopy-type-5-width" class="form-label">Width (ft)</label>
+                                        <input type="number" id="canopy-type-5-width" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                    <div class="col-span-2">
+                                        <label for="canopy-type-5-height" class="form-label">Packed Height (ft)</label>
+                                        <input type="number" id="canopy-type-5-height" value="" class="form-input" oninput="queueCalculate()">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="canopy-type-5-quantity" class="form-label">Quantity</label>
+                                    <input type="number" id="canopy-type-5-quantity" value="" min="0" class="form-input" oninput="queueCalculate()">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h2 class="text-xl font-bold text-emerald-700 border-b pb-2 mb-4">3. Packing Rules</h2>
+                        <div class="space-y-4">
+                             <div class="flex items-center justify-between">
+                                <span class="font-medium text-stone-700">Allow Stacking (Max 4 Units)</span>
+                                <!-- Toggle is removed, but for display, we can indicate it's on -->
+                                <span class="text-emerald-600 font-bold">ON</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="pt-4">
+                        <button id="calculateBtn" class="btn-primary">Calculate & Visualize</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISUALIZATION & RESULTS COLUMN -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-md border border-stone-200 min-h-[500px] lg:min-h-0 flex flex-col">
+                <h2 class="text-2xl font-bold text-emerald-800 mb-4 text-center">Shipping Plan & Last Truck Visualization</h2>
+                
+                <div class="flex-grow flex flex-col items-center justify-center p-4 bg-stone-100 rounded-lg border border-stone-200">
+                    <div id="canvas-container" class="w-full h-auto max-w-full relative">
+                         <canvas id="trailerCanvas" class="w-full h-auto"></canvas>
+                    </div>
+                </div>
+                
+                <div id="results" class="mt-6 text-center">
+                    <p class="text-stone-600 mb-4">This section presents the total trucks needed for your inventory. The visualization above shows the layout of the final truck load, providing a packing example.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4"> <!-- Changed to 2 columns -->
+                        <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-200">
+                            <h3 class="text-sm font-bold text-emerald-700 uppercase">Total Canopies To Ship</h3>
+                            <p id="totalCanopiesToShip" class="text-3xl font-bold text-emerald-900">0</p>
+                        </div>
+                        <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-200">
+                            <h3 class="text-sm font-bold text-emerald-700 uppercase">Trucks Needed</h3>
+                            <p id="trucksNeeded" class="text-3xl font-bold text-emerald-900">0</p>
+                        </div>
+                        <!-- Removed Canopies on Last Truck display -->
+                    </div>
+                     <p id="error-message" class="text-red-600 font-medium mt-4 h-5"></p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Declare global variables at the very top of the script
+        let calculateTimeout;
+
+        // Define global functions so they are available immediately to inline HTML attributes
+        function queueCalculate() {
+            clearTimeout(calculateTimeout);
+            calculateTimeout = setTimeout(calculateAndDraw, 300);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const calculateBtn = document.getElementById('calculateBtn');
+            const canvas = document.getElementById('trailerCanvas');
+            const ctx = canvas.getContext('2d');
+            const canvasContainer = document.getElementById('canvas-container');
+            
+            const trailerLengthInput = document.getElementById('trailerLength');
+            const trailerWidthInput = document.getElementById('trailerWidth');
+            const trailerHeightInput = document.getElementById('trailerHeight');
+            
+            const totalCanopiesToShipEl = document.getElementById('totalCanopiesToShip');
+            const trucksNeededEl = document.getElementById('trucksNeeded');
+            const errorMessageEl = document.getElementById('error-message');
+
+            // Array to hold references to the canopy input groups
+            const canopyInputGroups = [1, 2, 3, 4, 5].map(i => ({
+                id: `canopy-type-${i}`,
+                lengthInput: document.getElementById(`canopy-type-${i}-length`),
+                widthInput: document.getElementById(`canopy-type-${i}-width`),
+                heightInput: document.getElementById(`canopy-type-${i}-height`),
+                quantityInput: document.getElementById(`canopy-type-${i}-quantity`),
+            }));
+
+
+            // Attach event listeners to all fixed inputs
+            trailerLengthInput.addEventListener('input', queueCalculate);
+            trailerWidthInput.addEventListener('input', queueCalculate);
+            trailerHeightInput.addEventListener('input', queueCalculate);
+            calculateBtn.addEventListener('click', calculateAndDraw);
+
+            canopyInputGroups.forEach(group => {
+                group.lengthInput.addEventListener('input', queueCalculate);
+                group.widthInput.addEventListener('input', queueCalculate);
+                group.heightInput.addEventListener('input', queueCalculate);
+                group.quantityInput.addEventListener('input', queueCalculate);
+            });
+
+            function getCanopyData() {
+                const canopyData = [];
+                errorMessageEl.textContent = ''; // Clear previous errors
+                let hasInvalidInput = false;
+
+                canopyInputGroups.forEach(group => {
+                    const length_ft = parseFloat(group.lengthInput.value);
+                    const width_ft = parseFloat(group.widthInput.value);
+                    const height_ft = parseFloat(group.heightInput.value); 
+                    const quantity = parseInt(group.quantityInput.value);
+
+                    // Validate inputs: if not empty and not a number, mark as invalid
+                    if (group.lengthInput.value !== '' && isNaN(length_ft)) {
+                        errorMessageEl.textContent = 'Invalid Length in canopy inventory. Please use numbers.';
+                        hasInvalidInput = true;
+                    }
+                    if (group.widthInput.value !== '' && isNaN(width_ft)) {
+                        errorMessageEl.textContent = 'Invalid Width in canopy inventory. Please use numbers.';
+                        hasInvalidInput = true;
+                    }
+                    if (group.heightInput.value !== '' && isNaN(height_ft)) {
+                        errorMessageEl.textContent = 'Invalid Packed Height in canopy inventory. Please use numbers.';
+                        hasInvalidInput = true;
+                    }
+                    if (group.quantityInput.value !== '' && isNaN(quantity)) {
+                        errorMessageEl.textContent = 'Invalid Quantity in canopy inventory. Please use numbers.';
+                        hasInvalidInput = true;
+                    }
+
+                    // Only include canopies with positive dimensions and quantity in the data for packing
+                    // Convert all dimensions to INCHES here for consistency
+                    if (length_ft > 0 && width_ft > 0 && height_ft > 0 && quantity > 0) {
+                        canopyData.push({ 
+                            id: group.id, 
+                            length: length_ft * 12, // Convert to inches
+                            width: width_ft * 12,   // Convert to inches
+                            height: height_ft * 12, // Convert to inches
+                            quantity: quantity 
+                        }); 
+                    }
+                });
+
+                if (hasInvalidInput) {
+                    return null; // Return null if any invalid input was found
+                }
+                return canopyData; // Return valid data (or empty array if no positive inputs)
+            }
+
+            // Function to pack canopies into a single trailer using a simple linear strip fit
+            // inventoryToPack: Array of { id, length, width, height, quantity } objects (representing types with remaining quantities)
+            // Returns an object: { packedFootprints: [], nextInventoryState: [], unfitItems: [] }
+            function packOneTrailer(trailerDimensions, inventoryToPack) {
+                const packedFootprints = []; // For visualization on THIS truck
+                let currentY = 0; // Current Y position along the trailer's length
+                const maxStackLayers = 4; 
+                
+                // Create a working copy of the inventory for this packing attempt
+                let currentTruckInventoryState = inventoryToPack.map(item => ({...item})); 
+                currentTruckInventoryState.sort((a, b) => (b.length * b.width) - (a.length * a.width)); // Sort for greedy packing
+
+                let nextInventoryState = []; // What remains for the NEXT truck
+                let unfitForAnyTruck = []; // Items that are fundamentally too large (width/height/height for stacking)
+
+                for (let i = 0; i < currentTruckInventoryState.length; i++) {
+                    const canopyType = currentTruckInventoryState[i]; 
+
+                    // If all units of this type have already been packed, skip
+                    if (canopyType.quantity <= 0) {
+                        continue; 
+                    }
+
+                    // --- Fundamental Fit Checks for ANY truck (based on single footprint) ---
+                    // Calculate how many layers of this specific canopy type can stack
+                    let theoreticalLayers = Math.floor(trailerDimensions.height / canopyType.height); 
+                    let actualLayersPerStack = Math.min(theoreticalLayers, maxStackLayers);
+
+                    if (canopyType.width > trailerDimensions.width) {
+                        unfitForAnyTruck.push({...canopyType, quantity: canopyType.quantity}); // Add all remaining quantity of this type to unfit
+                        canopyType.quantity = 0; // Mark this type as fully processed for this truck
+                        continue; 
+                    }
+                    if (canopyType.length <= 0 || canopyType.width <= 0 || canopyType.height <= 0 || actualLayersPerStack === 0) {
+                         unfitForAnyTruck.push({...canopyType, quantity: canopyType.quantity}); // Invalid dimensions or can't stack even 1 layer
+                         canopyType.quantity = 0;
+                         continue;
+                    }
+                    // --- End Fundamental Fit Checks ---
+
+
+                    // Try to pack as many units of this type as possible into the current truck's remaining linear space
+                    while (canopyType.quantity > 0) { // While there are still units of this type to pack
+                        if (currentY + canopyType.length <= trailerDimensions.length) {
+                            // This footprint can be placed
+                            packedFootprints.push({
+                                x: (trailerDimensions.width - canopyType.width) / 2, // Center along X
+                                y: currentY,
+                                width: canopyType.width, 
+                                length: canopyType.length, 
+                                originalCanopy: canopyType, 
+                                layers: actualLayersPerStack // Number of units that stack in this single footprint
+                            });
+                            currentY += canopyType.length; // Advance Y for the next footprint
+                            canopyType.quantity -= actualLayersPerStack; // Deduct the number of *units* stacked in this footprint
+                        } else {
+                            // No more linear space for this type in THIS truck
+                            break; 
+                        }
+                    } 
+                    
+                    // If there are still units of this canopyType remaining after trying to pack into this truck
+                    if (canopyType.quantity > 0) {
+                        nextInventoryState.push(canopyType); // Add remaining quantities to next truck's inventory
+                    }
+                } 
+                return { packedFootprints: packedFootprints, nextInventoryState: nextInventoryState, unfitItems: unfitForAnyTruck };
+            }
+
+
+            function calculateAndDraw() {
+                errorMessageEl.textContent = ''; // Clear error message at start of calculation
+                
+                const trailerL_ft = parseFloat(trailerLengthInput.value);
+                const trailerW_ft = parseFloat(trailerWidthInput.value);
+                const trailerH_ft = parseFloat(trailerHeightInput.value);
+
+                if ([trailerL_ft, trailerW_ft, trailerH_ft].some(isNaN) ||
+                    trailerL_ft <= 0 || trailerW_ft <= 0 || trailerH_ft <= 0) {
+                    errorMessageEl.textContent = 'Please ensure all Trailer dimensions are valid positive numbers.';
+                    totalCanopiesToShipEl.textContent = '0';
+                    trucksNeededEl.textContent = '0';
+                    ctx.clearRect(0, 0, canvas.width, 0); 
+                    return;
+                }
+
+                const trailerDimensions = { 
+                    length: trailerL_ft * 12, // inches
+                    width: trailerW_ft * 12, // inches
+                    height: trailerH_ft * 12 // inches
+                };
+                
+                const canopyData = getCanopyData(); 
+                if (canopyData === null) { // getCanopyData returns null if invalid input (non-numeric text)
+                    totalCanopiesToShipEl.textContent = '0';
+                    trucksNeededEl.textContent = '0';
+                    ctx.clearRect(0, 0, canvas.width, 0); 
+                    return;
+                }
+
+                let totalCanopiesOriginalCount = 0; // Sum of quantities from input fields (what user *has*)
+                let inventoryToShip = []; // List of canopy types with quantities to process
+                for (const type of canopyData) {
+                    totalCanopiesOriginalCount += type.quantity;
+                    inventoryToShip.push({
+                        id: type.id,
+                        length: type.length,
+                        width: type.width,
+                        height: type.height,
+                        quantity: type.quantity // This quantity will be consumed during packing simulation
+                    });
+                }
+
+                if (totalCanopiesOriginalCount === 0) {
+                    errorMessageEl.textContent = 'Please add canopies with positive dimensions and quantity to calculate shipping.';
+                    totalCanopiesToShipEl.textContent = '0';
+                    trucksNeededEl.textContent = '0';
+                    ctx.clearRect(0, 0, canvas.width, 0); 
+                    return;
+                }
+                
+                let trucksNeeded = 0;
+                let currentRemainingInventory = [...inventoryToShip]; // Inventory state for the simulation
+                let lastPackedTruckFootprints = []; // For visualization
+                let overallUnfitCanopies = []; // Accumulated unfit items across all trucks
+
+                // Function to sum remaining quantities in the current inventory state
+                const sumRemainingQuantities = (inventoryState) => inventoryState.reduce((sum, type) => sum + type.quantity, 0);
+
+                while (sumRemainingQuantities(currentRemainingInventory) > 0) {
+                    trucksNeeded++;
+                    const packingResult = packOneTrailer(trailerDimensions, currentRemainingInventory);
+                    lastPackedTruckFootprints = packingResult.packedFootprints; 
+                    
+                    overallUnfitCanopies = overallUnfitCanopies.concat(packingResult.unfitItems); 
+                    
+                    // Crucial check: If a truck was added, but no items were packed into it, and there are still items remaining,
+                    // it means the remaining items are un-packable by the current algorithm (e.g., too many small gaps or stuck).
+                    if (packingResult.packedFootprints.length === 0 && sumRemainingQuantities(packingResult.nextInventoryState) > 0) {
+                        errorMessageEl.textContent = 'Some canopies could not be packed (no more suitable space in trucks).';
+                        // Add any remaining items to overallUnfitCanopies if they can't be packed in a new truck
+                        overallUnfitCanopies = overallUnfitCanopies.concat(packingResult.nextInventoryState); // Add the types with remaining quantities
+                        trucksNeededEl.textContent = trucksNeeded; 
+                        break; // Break the simulation as no more can be packed
+                    }
+                    currentRemainingInventory = packingResult.nextInventoryState;
+                }
+
+                // De-duplicate unfit items and sum their quantities
+                const uniqueUnfitCanopiesMap = new Map();
+                overallUnfitCanopies.forEach(item => {
+                    const key = JSON.stringify({id: item.id, length: item.length, width: item.width, height: item.height});
+                    if (uniqueUnfitCanopiesMap.has(key)) {
+                        uniqueUnfitCanopiesMap.get(key).quantity += item.quantity;
+                    } else {
+                        uniqueUnfitCanopiesMap.set(key, {...item});
+                    }
+                });
+                const uniqueUnfitCanopies = Array.from(uniqueUnfitCanopiesMap.values());
+                const totalUnfitCount = uniqueUnfitCanopies.reduce((sum, item) => sum + item.quantity, 0);
+
+                // Final total canopies to ship is the original count minus those truly unfit
+                totalCanopiesToShipEl.textContent = totalCanopiesOriginalCount - totalUnfitCount; 
+                trucksNeededEl.textContent = trucksNeeded;
+
+                if (totalUnfitCount > 0) {
+                     errorMessageEl.textContent = `${totalUnfitCount} canopies were too large (width/height/stacking) to fit in any truck.`;
+                } else if (totalCanopiesOriginalCount > 0 && (totalCanopiesOriginalCount - totalUnfitCount) === 0) { 
+                    errorMessageEl.textContent = 'No canopies could be fitted with the given dimensions.';
+                } else if (sumRemainingQuantities(currentRemainingInventory) > 0 && totalUnfitCount === 0) {
+                    // This error is for items that are packable but couldn't fit due to the linear packing algorithm
+                    errorMessageEl.textContent = `Only ${totalCanopiesOriginalCount - sumRemainingQuantities(currentRemainingInventory)} out of ${totalCanopiesOriginalCount} canopies could be shipped due to packing constraints.`;
+                }
+
+
+                // Canvas Drawing - Visualize the LAST truck's content
+                const aspectRatio = trailerDimensions.length / trailerDimensions.width; 
+                const containerWidth = canvasContainer.clientWidth;
+                canvas.width = containerWidth;
+                canvas.height = containerWidth * aspectRatio; 
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                const scale = canvas.width / trailerDimensions.width; 
+
+                // Draw Trailer
+                ctx.fillStyle = '#CFCFCF'; 
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = '#6B7280'; 
+                ctx.lineWidth = 4;
+                ctx.strokeRect(0, 0, canvas.width, canvas.height);
+
+                const typeColors = {};
+                const colorPalette = [
+                    '#A7F3D0', 
+                    '#BFDBFE', 
+                    '#FECACA', 
+                    '#FDE68A', 
+                    '#D8B4FE', 
+                    '#FED7AA'  
+                ];
+                let colorIndex = 0;
+                
+                for (const packedItem of lastPackedTruckFootprints) {
+                    const canopyActualWidth = packedItem.originalCanopy.width;
+                    const canopyActualLength = packedItem.originalCanopy.length;
+
+                    const scaledCanopyW = canopyActualWidth * scale;
+                    const scaledCanopyL = canopyActualLength * scale;
+                    
+                    const drawX = packedItem.x * scale; 
+                    const drawY = packedItem.y * scale; 
+
+                    if (!typeColors[packedItem.originalCanopy.id]) { // Use originalCanopy.id for consistent color per type
+                        typeColors[packedItem.originalCanopy.id] = colorPalette[colorIndex % colorPalette.length];
+                        colorIndex++;
+                    }
+                    ctx.fillStyle = typeColors[packedItem.originalCanopy.id];
+                    ctx.strokeStyle = '#059669'; 
+                    ctx.lineWidth = 1;
+
+                    ctx.fillRect(drawX, drawY, scaledCanopyW, scaledCanopyL);
+                    ctx.strokeRect(drawX, drawY, scaledCanopyW, scaledCanopyL);
+
+                    // Add text for stack count on the canopy
+                    ctx.fillStyle = '#333';
+                    ctx.font = `${10 * scale}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const text = `x${packedItem.layers}`;
+                    ctx.fillText(text, drawX + scaledCanopyW / 2, drawY + scaledCanopyL / 2);
+                }
+
+                if (lastPackedTruckFootprints.length === 0 && totalCanopiesOriginalCount > 0 && finalTotalCanopiesPackable === 0) { 
+                     // Only show this if no canopies could be packed at all from the start
+                }
+            }
+
+            // Initial calculation and draw on load
+            calculateAndDraw();
+
+            // Responsive Canvas Resizing
+            const resizeObserver = new ResizeObserver(() => {
+                calculateAndDraw();
+            });
+            resizeObserver.observe(canvasContainer);
+        });
+    </script>
+</body>
+</html>
